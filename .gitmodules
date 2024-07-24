@@ -1,0 +1,6 @@
+[submodule "DRAMsim3"]
+	path = DRAMsim3
+	url = https://github.com/CircuitCoder/DRAMsim3.git
+[submodule "alt"]
+	path = DRAMsim3
+	url = https://github.com/CircuitCoder/DRAMsim3.git

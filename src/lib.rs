@@ -54,6 +54,30 @@ impl MemorySystem {
             ffi::ds3_add(self.ffi_ptr, addr, is_write)
         }
     }
+
+    pub fn tck(&self) -> f64 {
+        unsafe {
+            ffi::ds3_get_tck(self.ffi_ptr)
+        }
+    }
+
+    pub fn bus_bits(&self) -> usize {
+        (unsafe {
+            ffi::ds3_get_bus_bits(self.ffi_ptr)
+        }) as usize
+    }
+
+    pub fn burst_length(&self) -> usize {
+        (unsafe {
+            ffi::ds3_get_burst_length(self.ffi_ptr)
+        }) as usize
+    }
+
+    pub fn queue_size(&self) -> usize {
+        (unsafe {
+            ffi::ds3_get_queue_size(self.ffi_ptr)
+        }) as usize
+    }
 }
 
 impl Drop for MemorySystem {

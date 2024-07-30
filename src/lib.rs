@@ -1,4 +1,4 @@
-use std::{ffi::CStr, os::unix::ffi::OsStrExt};
+use std::ffi::CStr;
 
 mod ffi;
 
@@ -98,8 +98,8 @@ fn test() -> anyhow::Result<()> {
     
     let dir = tempfile::tempdir()?;
 
-    let config_c = CString::new(config.as_os_str().as_bytes())?;
-    let dir_c = CString::new(dir.path().as_os_str().as_bytes())?;
+    let config_c = CString::new(config.as_os_str().as_encoded_bytes())?;
+    let dir_c = CString::new(dir.path().as_os_str().as_encoded_bytes())?;
 
     let mut pushed = false;
     let resolved: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));

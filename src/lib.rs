@@ -8,18 +8,12 @@ pub struct MemorySystem {
 }
 
 extern "C" fn inflate_cb(deflated: *mut libc::c_void, addr: u64, is_write: bool) {
-    let inflated = unsafe {
-        &mut *(deflated as *mut Box<dyn FnMut(u64, bool)>)
-    };
+    let inflated = unsafe { &mut *(deflated as *mut Box<dyn FnMut(u64, bool)>) };
     inflated(addr, is_write);
 }
 
 impl MemorySystem {
-    pub fn new<F: FnMut(u64, bool) + 'static>(
-        config: &CStr,
-        dir: &CStr,
-        cb: F,
-    ) -> MemorySystem {
+    pub fn new<F: FnMut(u64, bool) + 'static>(config: &CStr, dir: &CStr, cb: F) -> MemorySystem {
         let mut cb_box: Box<Box<dyn FnMut(u64, bool)>> = Box::new(Box::new(cb));
 
         let handle = unsafe {
@@ -44,58 +38,48 @@ impl MemorySystem {
     }
 
     pub fn can_add(&self, addr: u64, is_write: bool) -> bool {
-        unsafe {
-            ffi::ds3_can_add(self.ffi_ptr, addr, is_write)
-        }
+        unsafe { ffi::ds3_can_add(self.ffi_ptr, addr, is_write) }
     }
 
     pub fn add(&mut self, addr: u64, is_write: bool) -> bool {
-        unsafe {
-            ffi::ds3_add(self.ffi_ptr, addr, is_write)
-        }
+        unsafe { ffi::ds3_add(self.ffi_ptr, addr, is_write) }
     }
 
     pub fn tck(&self) -> f64 {
-        unsafe {
-            ffi::ds3_get_tck(self.ffi_ptr)
-        }
+        unsafe { ffi::ds3_get_tck(self.ffi_ptr) }
     }
 
     pub fn bus_bits(&self) -> usize {
-        (unsafe {
-            ffi::ds3_get_bus_bits(self.ffi_ptr)
-        }) as usize
+        (unsafe { ffi::ds3_get_bus_bits(self.ffi_ptr) }) as usize
     }
 
     pub fn burst_length(&self) -> usize {
-        (unsafe {
-            ffi::ds3_get_burst_length(self.ffi_ptr)
-        }) as usize
+        (unsafe { ffi::ds3_get_burst_length(self.ffi_ptr) }) as usize
     }
 
     pub fn queue_size(&self) -> usize {
-        (unsafe {
-            ffi::ds3_get_queue_size(self.ffi_ptr)
-        }) as usize
+        (unsafe { ffi::ds3_get_queue_size(self.ffi_ptr) }) as usize
     }
 }
 
 impl Drop for MemorySystem {
     fn drop(&mut self) {
-        unsafe { ffi::ds3_drop(self.ffi_ptr); }
+        unsafe {
+            ffi::ds3_drop(self.ffi_ptr);
+        }
     }
 }
 
 #[test]
 fn test() -> anyhow::Result<()> {
-    use std::path::PathBuf;
-    use std::ffi::CString;
     use std::cell::RefCell;
+    use std::ffi::CString;
+    use std::path::PathBuf;
     use std::rc::Rc;
 
     let mut config = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     config.push("DRAMsim3/configs/HBM2_4Gb_x128.ini");
-    
+
     let dir = tempfile::tempdir()?;
 
     let config_c = CString::new(config.as_os_str().as_encoded_bytes())?;

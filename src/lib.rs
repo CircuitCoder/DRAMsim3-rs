@@ -1,27 +1,78 @@
-use std::ffi::CStr;
+use std::{
+    cell::UnsafeCell,
+    ffi::{c_void, CStr},
+    ptr::null_mut,
+};
 
 mod ffi;
 
-pub struct MemorySystem {
-    ffi_ptr: *mut libc::c_void,
-    _cb: Box<Box<dyn FnMut(u64, bool)>>,
+// equavilent to `*const dyn FnMut(u64, bool)`,
+// but raw fat pointer is unstable
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RawCallbackFnMut {
+    fun: unsafe extern "C" fn(data: *mut c_void, addr: u64, is_write: bool),
+    data: *mut c_void,
 }
 
-extern "C" fn inflate_cb(deflated: *mut libc::c_void, addr: u64, is_write: bool) {
-    let inflated = unsafe { &mut *(deflated as *mut Box<dyn FnMut(u64, bool)>) };
-    inflated(addr, is_write);
+impl RawCallbackFnMut {
+    pub const fn invalid() -> Self {
+        RawCallbackFnMut {
+            fun: Self::_invalid_fn,
+            data: null_mut(),
+        }
+    }
+
+    pub fn from_fn_mut<F: FnMut(u64, bool)>(f: &mut F) -> Self {
+        RawCallbackFnMut {
+            fun: Self::_invoke_fn_mut::<F>,
+            data: f as *mut F as *mut c_void,
+        }
+    }
+
+    unsafe extern "C" fn _invalid_fn(_data: *mut c_void, _addr: u64, _is_write: bool) {
+        unreachable!("callback is invoked outside tick");
+    }
+
+    unsafe extern "C" fn _invoke_fn_mut<F: FnMut(u64, bool)>(
+        f: *mut c_void,
+        addr: u64,
+        is_write: bool,
+    ) {
+        (*(f as *mut F))(addr, is_write)
+    }
+
+    extern "C" fn _invoke_cb(this: *mut c_void, addr: u64, is_write: bool) {
+        unsafe {
+            let this = *(this as *mut RawCallbackFnMut);
+            (this.fun)(this.data, addr, is_write);
+        }
+    }
 }
+
+pub struct MemorySystem {
+    ffi_ptr: *mut c_void,
+
+    // _cb is used by both C++ and Rust side,
+    // use UnsafeCell to avoid potential aliasing UB
+    _cb: Box<UnsafeCell<RawCallbackFnMut>>,
+}
+
+// safety: `Send` generally means safe under mutex
+unsafe impl Send for MemorySystem {}
 
 impl MemorySystem {
-    pub fn new<F: FnMut(u64, bool) + 'static>(config: &CStr, dir: &CStr, cb: F) -> MemorySystem {
-        let mut cb_box: Box<Box<dyn FnMut(u64, bool)>> = Box::new(Box::new(cb));
+    pub fn new(config: &CStr, dir: &CStr) -> MemorySystem {
+        let cb_box: Box<UnsafeCell<RawCallbackFnMut>> =
+            Box::new(UnsafeCell::new(RawCallbackFnMut::invalid()));
+        let cb_ptr: *mut RawCallbackFnMut = cb_box.get();
 
         let handle = unsafe {
             ffi::ds3_create(
-                cb_box.as_mut() as *mut _ as *mut libc::c_void,
+                cb_ptr as *mut c_void,
                 config.as_ptr(),
                 dir.as_ptr(),
-                inflate_cb,
+                RawCallbackFnMut::_invoke_cb,
             )
         };
 
@@ -31,9 +82,15 @@ impl MemorySystem {
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, mut f: impl FnMut(u64, bool)) {
+        let cb_ptr: *mut RawCallbackFnMut = self._cb.get();
+        // safety: we hold `&mut self` here, no data races when changing cb_ptr
         unsafe {
+            *cb_ptr = RawCallbackFnMut::from_fn_mut(&mut f);
             ffi::ds3_tick(self.ffi_ptr);
+
+            // could be omitted, add as additional safe guard
+            *cb_ptr = RawCallbackFnMut::invalid();
         }
     }
 
@@ -90,14 +147,14 @@ fn test() -> anyhow::Result<()> {
 
     let sys_resolved = resolved.clone();
 
-    let mut sys = MemorySystem::new(&config_c, &dir_c, move |addr, is_write| {
-        assert_eq!(addr, 0xdeadbeef);
-        assert_eq!(is_write, false);
-        *sys_resolved.borrow_mut() = true;
-    });
+    let mut sys = MemorySystem::new(&config_c, &dir_c);
 
     loop {
-        sys.tick();
+        sys.tick(|addr, is_write| {
+            assert_eq!(addr, 0xdeadbeef);
+            assert_eq!(is_write, false);
+            *sys_resolved.borrow_mut() = true;
+        });
         if !pushed && sys.can_add(0xdeadbeef, false) {
             assert!(sys.add(0xdeadbeef, false));
             pushed = true;

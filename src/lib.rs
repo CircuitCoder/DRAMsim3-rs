@@ -1,7 +1,8 @@
 use std::{
     cell::UnsafeCell,
-    ffi::{c_void, CStr},
+    ffi::{c_void, CString},
     ptr::null_mut,
+    path::Path,
 };
 
 mod ffi;
@@ -50,6 +51,12 @@ impl RawCallbackFnMut {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum MemorySystemCreationError {
+    NulInConfig,
+    NulInDir,
+}
+
 pub struct MemorySystem {
     ffi_ptr: *mut c_void,
 
@@ -62,7 +69,10 @@ pub struct MemorySystem {
 unsafe impl Send for MemorySystem {}
 
 impl MemorySystem {
-    pub fn new(config: &CStr, dir: &CStr) -> MemorySystem {
+    pub fn new(config: impl AsRef<Path>, dir: impl AsRef<Path>) -> Result<MemorySystem, MemorySystemCreationError> {
+        let config_cstr = CString::new(config.as_ref().as_os_str().as_encoded_bytes()).map_err(|_| MemorySystemCreationError::NulInConfig)?;
+        let dir_cstr = CString::new(dir.as_ref().as_os_str().as_encoded_bytes()).map_err(|_| MemorySystemCreationError::NulInDir)?;
+
         let cb_box: Box<UnsafeCell<RawCallbackFnMut>> =
             Box::new(UnsafeCell::new(RawCallbackFnMut::invalid()));
         let cb_ptr: *mut RawCallbackFnMut = cb_box.get();
@@ -70,16 +80,16 @@ impl MemorySystem {
         let handle = unsafe {
             ffi::ds3_create(
                 cb_ptr as *mut c_void,
-                config.as_ptr(),
-                dir.as_ptr(),
+                config_cstr.as_ptr(),
+                dir_cstr.as_ptr(),
                 RawCallbackFnMut::_invoke_cb,
             )
         };
 
-        MemorySystem {
+        Ok(MemorySystem {
             ffi_ptr: handle,
             _cb: cb_box,
-        }
+        })
     }
 
     pub fn tick(&mut self, mut f: impl FnMut(u64, bool)) {
@@ -130,7 +140,6 @@ impl Drop for MemorySystem {
 #[test]
 fn test() -> anyhow::Result<()> {
     use std::cell::RefCell;
-    use std::ffi::CString;
     use std::path::PathBuf;
     use std::rc::Rc;
 
@@ -139,15 +148,12 @@ fn test() -> anyhow::Result<()> {
 
     let dir = tempfile::tempdir()?;
 
-    let config_c = CString::new(config.as_os_str().as_encoded_bytes())?;
-    let dir_c = CString::new(dir.path().as_os_str().as_encoded_bytes())?;
-
     let mut pushed = false;
     let resolved: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
 
     let sys_resolved = resolved.clone();
 
-    let mut sys = MemorySystem::new(&config_c, &dir_c);
+    let mut sys = MemorySystem::new(&config, &dir).unwrap();
 
     loop {
         sys.tick(|addr, is_write| {

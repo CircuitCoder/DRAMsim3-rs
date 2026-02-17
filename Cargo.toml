@@ -7,7 +7,7 @@ license = "MIT"
 repository = "https://github.com/CircuitCoder/DRAMsim3-rs"
 
 [dependencies]
-libc = "0.2.178"
+libc = "0.2.182"
 
 [build-dependencies]
 cmake = "0.1.57"

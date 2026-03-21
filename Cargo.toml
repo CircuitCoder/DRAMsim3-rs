@@ -14,4 +14,4 @@ cmake = "0.1.57"
 
 [dev-dependencies]
 anyhow = "1.0.102"
-tempfile = "3.26.0"
+tempfile = "3.27.0"

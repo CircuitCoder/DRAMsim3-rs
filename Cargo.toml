@@ -10,7 +10,7 @@ repository = "https://github.com/CircuitCoder/DRAMsim3-rs"
 libc = "0.2.184"
 
 [build-dependencies]
-cmake = "0.1.57"
+cmake = "0.1.58"
 
 [dev-dependencies]
 anyhow = "1.0.102"
